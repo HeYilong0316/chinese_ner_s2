@@ -13,11 +13,25 @@ import sys
 from glob import glob
 import json
 
-
+sys.path = [os.getcwd()] + sys.path
 logger = logging.getLogger(__name__)
 
 
-MAX_LEN = 510
+user_data_dir = "../user_data/data"
+test_dir_path = "/tcdata/juesai"
+# test_dir_path = "/home/heyilong/codes/chinese_medical_ner/user_data/chusai_xuanshou"
+train_dir_path = "../data/train"
+
+
+try:
+    K_FOLD = int(sys.argv[1])
+    MAX_LEN = int(sys.argv[2])
+except Exception as e:
+    print(e)
+    K_FOLD = 10
+    MAX_LEN = 512
+
+print(f"K_FOLD: {K_FOLD}, MAX_LEN: {MAX_LEN}")
 
 LABELS_LIST = [
     "DRUG",
@@ -39,6 +53,8 @@ LABELS_LIST = [
 BLANK_RE = re.compile("\s")
 
 ZH_RE = re.compile("[\u4e00-\u9fa5]")
+
+SPECIAL_RE = re.compile("[^\u4e00-\u9fa5_a-z_A-Z_0-9]")
 
 REPLACE_MAP = {
     "×": "*",
@@ -74,103 +90,7 @@ REPLACE_MAP = {
     '－': "~"
 }
 
-REMOVE_LIST = [
-    # '"',
-    # '#',
-    # '%',
-    "'",
-    "】",
-    '*',
-    '/',
-    '—',
-    '…',
-    '℃',
-    '∶',
-    '⑸',
-    '⑺',
-    '⑼',
-    '⑽',
-    '⑾',
-    '⑿',
-    '⒀',
-    '⒈',
-    '⒉',
-    '⒊',
-    '⒋',
-    '⒌',
-    '⒍',
-    '⒎',
-    '⒏',
-    '⒐',
-    '⒑',
-    '⒒',
-    '⒖',
-    '┦',
-    '\u3000',
-    'ぁ',
-    'は',
-    'ク',
-    'ダ',
-    'ヌ',
-    'ヒ',
-    'プ',
-    '\ue000',
-    '\ue002',
-    '\ue004',
-    '\ue01a',
-    '\ue027',
-    '\ue02e',
-    '\ue034',
-    '\ue04f',
-    '\ue060',
-    '\ue074',
-    '\ue093',
-    '\ue0bc',
-    '\ue0be',
-    '\ue0ce',
-    '\ue0d2',
-    '\ue0d4',
-    '\ue0d6',
-    '\ue0d7',
-    '\ue0de',
-    '\ue0df',
-    '\ue0e1',
-    '\ue0e9',
-    '\ue0ea',
-    '\ue0ec',
-    '\ue0ed',
-    '\ue0ee',
-    '\ue132',
-    '\ue13f',
-    '\ue1d8',
-    '\ue1e6',
-    '\ue1fb',
-    '\ue207',
-    '\ue225',
-    '\ue246',
-    '\ue262',
-    '\ue264',
-    '\ue269',
-    '\ue292',
-    '\ue2be',
-    '\ue2c7',
-    '\ue312',
-    '\ue380',
-    '\ue383',
-    '\ue3da',
-    '\ue422',
-    '\ue42c',
-    '\ue431',
-    '\ue432',
-    '\ue456',
-    '\ue468',
-    '\ue46a',
-    '\ue49a',
-    '\ue5cb',
-    '\ue787',
-    '\ue800',
-    '＃',
-]
+KEEP_LIST = [' ', '"', '#', '%', '&', '(', ')', ',', '.', ':', ';', '<', '=', '>', '?', '~', '、', '。']
 
 REFINE_RE = [
     r"&[a-zA-Z0-9]+;",
@@ -191,39 +111,6 @@ print(REMOVE_RE)
 # 获取一次多意的实体
 
 
-def get_polysemy():
-    train_dir_path = "../user_data/train"
-    train_file_list = glob(os.path.join(train_dir_path, "*.txt"))
-    polysemy_dict = {}
-    for file_name in train_file_list:
-        with open(file_name, "r", encoding="utf8") as r:
-            text = r.read()
-        file_name = file_name[:-3] + "ann"
-        with open(file_name, "r", encoding="utf8") as r:
-            for line in r:
-                line = line.strip()
-                if not line:
-                    continue
-                else:
-                    _, content, mention = line.split("\t")
-                    tag, start, end = content.split(" ")
-                    start = int(start)
-                    end = int(end)
-                    polysemy_dict[text[start:end]] = polysemy_dict.get(
-                        text[start:end], set()) | set([tag])
-
-    polysemy_set = set()
-    for mention, tags in polysemy_dict.items():
-        if len(tags) > 1:
-            polysemy_set.add(mention)
-    print(polysemy_set)
-    return polysemy_set
-
-
-# polysemy_set = get_polysemy()
-polysemy_set = set()
-
-
 class PreProcessBase:
     def __init__(self, txt_file, ann_file=None):
         # read file
@@ -240,7 +127,6 @@ class PreProcessBase:
                 lambda x: list(map(lambda x: int(x), x[1:])))
             ann = ann.drop("label_and_span", axis=1)
             ann["mention"] = ann.span.apply(lambda x: text[x[0]:x[1]])
-            ann = ann[~ann.mention.isin(polysemy_set)]
         else:
             ann = None
 
@@ -400,7 +286,7 @@ class PreProcessBase:
         ret = []
         # 一个中文都没有的句子删掉
         for sentence in sentences:
-            if len(sentence) > 1 and ZH_RE.search("".join(c[0] for c in sentence)):
+            if ZH_RE.search("".join(c[0] for c in sentence)):
                 # if ZH_RE.search("".join(c[0] for c in sentence)):
                 ret.append(sentence)
         return ret
@@ -505,13 +391,14 @@ class PreProcess(PreProcessBase):
             ["[<\[(][^\u4e00-\u9fa5]*?[>\])]"], string)
         # 删除无关字符
         for index, c in enumerate(string):
-            if c in REMOVE_LIST:
+            if SPECIAL_RE.match(c) and (c not in KEEP_LIST):
                 remove_index_list.append(index)
 
         remove_index_list = list(remove_index_list)
         remove_index_list.sort()
 
-        sentence = self.remove_from_index(sentence, string, remove_index_list)
+        if remove_index_list:
+            sentence = self.remove_from_index(sentence, string, remove_index_list)
 
         return sentence
 
@@ -544,21 +431,22 @@ class PreProcess(PreProcessBase):
 
     def post_segment_preprocess(self, sentences):
         '''分句后的处理'''
-
         # refine文本
         for i, sentence in enumerate(sentences):
             string = "".join([c[0] for c in sentence])
             remove_index_list = self.get_remove_index(
                 REFINE_RE, string, whole=True)
             for index, c in enumerate(string):
-                if c in REMOVE_LIST:
+                if SPECIAL_RE.match(c) and (c not in KEEP_LIST):
                     remove_index_list.append(index)
 
             remove_index_list = list(remove_index_list)
             remove_index_list.sort()
 
-            sentence = self.remove_from_index(
-                sentence, string, remove_index_list)
+            if remove_index_list:
+                sentence = self.remove_from_index(
+                    sentence, string, remove_index_list)
+
             sentences[i] = sentence
 
         # 删除一些无关句子
@@ -570,8 +458,9 @@ class PreProcess(PreProcessBase):
             remove_index_list = list(remove_index_list)
             remove_index_list.sort()
 
-            sentence = self.remove_from_index(
-                sentence, string, remove_index_list)
+            if remove_index_list:
+                sentence = self.remove_from_index(
+                    sentence, string, remove_index_list)
             sentences[i] = sentence
 
         if MAX_LEN < 0:
@@ -580,7 +469,7 @@ class PreProcess(PreProcessBase):
         return sentences
 
 
-def run(file_name_list, mode):
+def run(file_name_list, lexicon_extractor, mode):
     import datetime
     print(f"------------------start For {mode}----------------------")
     conlls = []
@@ -598,16 +487,30 @@ def run(file_name_list, mode):
         all_del_sen += info["del_sen"]
         conlls.extend(conll)
 
-    max_len = max([len(s) for s in conlls])
+    max_len = max([len(s)+2 for s in conlls])
+    
+    # 加入lexicon之后的最大长度
+    max_lexicon_len = 0
+    for conll in conlls:
+        string = "".join([s[0] for s in conll]).replace("[unused1]", " ")
+        length = len(conll) + 2
+        lexicons = lexicon_extractor.extract_keywords(string)
+        for lexicon in lexicons:
+            length += len(lexicon) + 1
+        if  max_lexicon_len < length:
+            max_lexicon_len = length
+
     label_num = 0
     for conll in conlls:
         label = [c[-1] for c in conll]
         label_num += len(get_entities(label))
+
     print(
         f'''
             句子总数   : {len(conlls)}
             删除句子个数: {all_del_sen}
             句子最大长度: {max_len}
+            加入lexicon最大长度：{max_lexicon_len}
             原始实体个数: {all_label_num}
             当前实体个数: {label_num}
         '''
@@ -648,162 +551,74 @@ def save_to_file(conlls, path, mode):
     output_file = os.path.join(path, f"{mode}.txt")
     with open(output_file, "w", encoding="utf8") as w:
         w.write(string)
+    print(f"save to {output_file}")
     return conlls
 
 
-def gen_count_for_data(conlls_train, conlls_dev, conlls_test):
-    # 生成句子分布
-    text_list = []
-    for conll in conlls_train + conlls_dev + conlls_test:
-        text_list.append("".join(c[0] for c in conll))
+def make_lexicon():
+    lexicon = set()
+    # 储存字典
+    dict_path = os.path.join(user_data_dir, "dicts")
+    if not os.path.exists(dict_path):
+        os.mkdir(dict_path)
+    for txt_file in glob(os.path.join(train_dir_path, "*.txt")):
+        with open(txt_file, "r", encoding="utf8") as r:
+            text = r.read()
+        ann_file = os.path.join(train_dir_path, os.path.basename(txt_file).split(".")[0] + ".ann")
+        ann = pd.read_csv(ann_file, sep="\t", header=None)
+        ann.columns = ["id_", "label_and_span", "mention"]
+        ann["label_and_span"] = ann.label_and_span.apply(
+            lambda x: x.strip().split(" "))
+        ann["label"] = ann.label_and_span.apply(lambda x: x[0])
+        ann["span"] = ann.label_and_span.apply(
+            lambda x: list(map(lambda x: int(x), x[1:])))
+        ann = ann.drop("label_and_span", axis=1)
+        ann["mention"] = ann.span.apply(lambda x: text[x[0]:x[1]])
+        lexicon.update(ann.mention.values.tolist())
 
-    text_df = pd.DataFrame(text_list)
-    text_df.columns = ["text"]
-    text_df.text.value_counts().reset_index().to_csv(
-        "../user_data/conll/text_counts_ori.csv", index=None)
-
-    # 生成句子标注的分布
-    text_label_dict = {}
-    text_count_dict = {}
-    for conll in conlls_train + conlls_dev:
-        text = "".join(c[0] for c in conll)
-        # 记录句子的频数
-        text_count_dict[text] = text_count_dict.get(text, 0) + 1
-        # 记录每个句子的实体的频数
-        entity = get_entities([c[-1] for c in conll])
-        entity = [(tag, start, end, text[start:end+1])
-                  for tag, start, end in entity]
-        value = text_label_dict.get(text, {})
-        for e in entity:
-            value[e] = value.get(e, 0) + 1
-        text_label_dict[text] = value
-
-    def is_conflict(label1, label2):
-        if set(range(int(label1[1]), int(label1[2])+1)) & set(range(int(label2[1]), int(label2[2])+1)):
-            return True
-        else:
-            return False
-
-    # 纠正每个句子的标注
-    text_entities_map = {}
-    for text, entity_dict in text_label_dict.items():
-        # 位置考前频数大的排前面
-        entities = []
-        entity_list = sorted(entity_dict.items(), key=lambda x: (x[0][1]))
-
-        pre_freq = None
-        for entity, freq in entity_list:
-            # if freq / text_count_dict[text] < 0.1:
-            #     # 小于一定频次的标注直接删掉
-            #     continue
-            if entities and is_conflict(entities[-1], entity):
-                # 有冲突: 如果频数相同，取长的那个
-                if (freq == pre_freq and (entity[2] - entity[1]) > (entities[-1][2] - entities[-1][1])) or (freq > pre_freq):
-                    entities[-1] = entity
-                    pre_freq = freq
-            else:
-                pre_freq = freq
-                entities.append(entity)
-        text_entities_map[text] = entities
-
-    text_entities_list = [{"text": text, "label": [
-        list(e) for e in label]} for text, label in text_entities_map.items()]
-    text_entities_list = json.dumps(
-        text_entities_list, ensure_ascii=False, indent=2)
-    with open("../ser_data/conll/text_label.json", "w", encoding="utf8") as w:
-        w.write(text_entities_list)
-
-    return text_entities_map
-
-
-def repair_label(conll, text_entities_map):
-    words, file_id, pos, ori_label = zip(*conll)
-    text = "".join(words)
-    entity = text_entities_map.get(text, [])
-    label = ["O" for _ in range(len(words))]
-    for e in entity:
-        tag, start, end, _ = e
-        start = int(start)
-        end = int(end)
-        label[e[1]] = f"B-{tag}"
-        for i in range(start+1, end+1):
-            label[i] = f"I-{tag}"
-    conll = zip(words, file_id, pos, ori_label, label)
-    return conll
-
-
-def main_single():
-    from sklearn.model_selection import train_test_split
-
-    train_dir_path = "data/train"
-    train_file_list = glob(os.path.join(train_dir_path, "*.txt"))
-
-    output_dir = os.path.join("../user_data", "conll")
-    if os.path.exists(output_dir):
-        raise FileExistsError(f"file exit: {output_dir}")
-    if not os.path.exists(output_dir):
-        os.mkdir(output_dir)
-
-    # 2333
-    # 4018
-    # 划分训练集和验证集
-    train_file_list, dev_file_list = train_test_split(
-        train_file_list, test_size=0.2, random_state=2333)
-
-    conlls_train = run(train_file_list, "train")
-    conlls_dev = run(dev_file_list, "dev")
-    # 测试机
-    test_dir_path = "/tcdata/juesai"
-    test_file_list = glob(os.path.join(test_dir_path, "*.txt"))
-    conlls_test = run(test_file_list, "test")
-
-    save_to_file(conlls_train, output_dir, "train")
-    save_to_file(conlls_dev, output_dir, "dev")
-    save_to_file(conlls_test, output_dir, "test")
-
+    lexicon = sorted(list(lexicon))
+    with open(os.path.join(dict_path, "lexicon.json"), "w", encoding="utf8") as w:
+        json.dump(lexicon, w, ensure_ascii=False, indent=2)
+    return lexicon
 
 def main_k_fold(mode):
     from sklearn.model_selection import KFold
     import numpy as np
+    from ruler.flashtext import KeywordProcessor
 
-    k_fold = KFold(n_splits=10, shuffle=True, random_state=2333)
 
-    test_dir_path = "/tcdata/juesai"
-    # test_dir_path = "/home/heyilong/codes/chinese_medical_ner/user_data/chusai_xuanshou"
-    test_file_list = glob(os.path.join(test_dir_path, "*.txt"))
-
-    conlls_test = run(test_file_list, "test")
-
-    k_fold_dir = os.path.join("../user_data", "k_fold")
+    k_fold_dir = os.path.join(user_data_dir, f"k_fold_{K_FOLD}_{MAX_LEN}")
     if not os.path.exists(k_fold_dir):
         os.mkdir(k_fold_dir)
-    save_to_file(conlls_test, k_fold_dir, "test")
 
-    train_dir_path = "../user_data/train"
+    lexicon = make_lexicon()
+    lexicon_extractor = KeywordProcessor()
+    lexicon_extractor.add_keywords_from_list(lexicon)
+
+    k_fold = KFold(n_splits=K_FOLD, shuffle=True, random_state=2333)
+
+    if "predict" in mode:
+        test_file_list = glob(os.path.join(test_dir_path, "*.txt"))
+        conlls_test = run(test_file_list, lexicon_extractor, "test")
+        save_to_file(conlls_test, k_fold_dir, "test")
+
     train_file_list = glob(os.path.join(train_dir_path, "*.txt"))
     train_file_array = np.array(train_file_list)
+    
 
-    if mode != "predict":    
+    if "train" in mode:
         for i, (train_list, dev_list) in enumerate(k_fold.split(train_file_list)):
             print(f"for {i}-fold")
             output_dir = os.path.join(k_fold_dir, f"fold_{i}")   
             train_list = train_file_array[train_list].tolist()
             dev_list = train_file_array[dev_list].tolist()
-            conlls_train = run(train_list, "dev")
-            conlls_dev = run(dev_list, "dev")
+            conlls_train = run(train_list, lexicon_extractor, "train")
+            conlls_dev = run(dev_list, lexicon_extractor, "dev")
 
             save_to_file(conlls_train, output_dir, "train")
-            save_to_file(conlls_dev, output_dir, "dev")
-        
-
+            save_to_file(conlls_dev, output_dir, "dev")    
 
 if __name__ == "__main__":
-    if len(sys.argv) == 1 or (len(sys.argv) > 1 and sys.argv[1]) == "single":
-        print("run single")
-        main_single()
+    mode = sys.argv[3]
+    main_k_fold(mode)
 
-    elif len(sys.argv) > 1 and sys.argv[1] == "k-fold":
-        print("run k-fold")
-        main_k_fold(sys.argv[2])
-    else:
-        raise ValueError("参数错误")

@@ -28,6 +28,7 @@ import torch
 
 logger = logging.getLogger(__name__)
 
+IS_IN_DOCKER_CONTAINER = os.environ.get('AM_I_IN_A_DOCKER_CONTAINER', False)
 
 from transformers import (
     AutoConfig,
@@ -146,11 +147,18 @@ def main():
         )
 
     # Setup logging
+    if IS_IN_DOCKER_CONTAINER:
+        log_level = logging.WARNING
+    elif training_args.training_on_cloud:
+        log_level = logging.WARNING
+    else:
+        log_level = logging.INFO if (training_args.local_rank in [-1, 0]) else logging.WARN
     logging.basicConfig(
         format="%(asctime)s - %(levelname)s - %(name)s - %(lineno)d -   %(message)s",
         datefmt="%m/%d/%Y %H:%M:%S",
-        level=logging.INFO if training_args.local_rank in [-1, 0] else logging.WARN,
+        level=log_level
     )
+    logger.warning(f"log level: {log_level}")
     logger.warning(
         "Process rank: %s, device: %s, n_gpu: %s, distributed training: %s, 16-bits training: %s",
         training_args.local_rank,
@@ -211,7 +219,8 @@ def main():
             max_seq_length=data_args.max_seq_length,
             overwrite_cache=data_args.overwrite_cache,
             mode=Split.train,
-            use_crf=training_args.use_crf
+            use_crf=training_args.use_crf,
+            use_lexicon=training_args.use_lexicon
         )
         if training_args.do_train
         else None
@@ -226,9 +235,10 @@ def main():
             max_seq_length=data_args.max_seq_length,
             overwrite_cache=data_args.overwrite_cache,
             mode=Split.dev,
-            use_crf=training_args.use_crf
+            use_crf=training_args.use_crf,
+            use_lexicon=training_args.use_lexicon
         )
-        if training_args.do_eval or training_args.do_predict_dev
+        if training_args.do_eval or training_args.do_predict_dev or training_args.args.evaluate_during_training
         else None
     )
 
@@ -321,9 +331,9 @@ def main():
         reader_file = os.path.join(data_args.data_dir, f"{mode}.txt")
 
         if mode == "dev":
-            data_dir = "datas/brat/train"
+            data_dir = "../user_data/data/train"
         elif mode == "test":
-            data_dir = "datas/brat/chusai_xuanshou"
+            data_dir = "/tcdata/juesai"
         else:
             raise ValueError(f"mode is error: {mode}")
         
@@ -384,6 +394,8 @@ def main():
         if trainer.is_world_master():
             tokenizer.save_pretrained(training_args.output_dir)
 
+        select_model(training_args.output_dir, k_fold=10, select=True, rm=True)
+
     # Evaluation
     results = {}
     if training_args.do_eval:
@@ -412,7 +424,8 @@ def main():
             max_seq_length=data_args.max_seq_length,
             overwrite_cache=data_args.overwrite_cache,
             mode=Split.test,
-            use_crf=training_args.use_crf
+            use_crf=training_args.use_crf,
+            use_lexicon=training_args.use_lexicon
         )
 
         # logger.warning(list(zip(tokens_list[3], test_dataset.features[3].input_ids)))
@@ -603,6 +616,47 @@ def conver_entity_list_to_tuple(reader, preds_list, words_list, data_dir):
     #     real_entity_tuples.extend(real_entity_tuple)
 
     return pre_entity_tuples, real_entity_tuples
+
+
+
+from glob import glob
+import json
+
+def select_model(root_dir, 
+                file_name="log_history.json", 
+                model_name="pytorch_model.bin", 
+                k_fold=10, 
+                select=False, 
+                rm=False
+                ):
+
+    dir_path = root_dir
+    file_path = os.path.join(dir_path, file_name)
+    with open(file_path, "r", encoding="utf8") as r:
+        log_history = json.load(r)
+    
+    max_score = 0
+    max_step = None
+
+    for log in log_history:
+        score = log.get("eval_all_f_recall", -1)
+
+        if score > max_score:
+            max_score = score
+            max_step = log["step"]
+
+    if select:
+        # 把最优模型copy出来
+        model_path = os.path.join(dir_path, f"checkpoint-{max_step}", model_name)
+        cmd = f"cp {model_path} {dir_path}"
+        logger.warring("cmd: " + cmd)
+        os.system(cmd)
+    if rm:
+        # 多余的模型删掉
+        rm_path = os.path.join(dir_path, f"checkpoint-*")
+        cmd = f"rm -r  {rm_path}"
+        logger.warring("cmd: " + cmd)
+        os.system(cmd)
 
 
 

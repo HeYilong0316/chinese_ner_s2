@@ -1,2 +1,2 @@
 data/*
-user_data/model/*
+__pycache__/

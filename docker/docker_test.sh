@@ -1,2 +1,0 @@
-sudo docker build -t registry.cn-shenzhen.aliyuncs.com/heyilong_tianchi/chinese_medical_ner:v0.1 .
-sudo nvidia-docker run --name ner -v /home/heyilong/codes/chinese_medical_ner/user_data/chusai_xuanshou:/tcdata/juesai registry.cn-shenzhen.aliyuncs.com/heyilong_tianchi/chinese_medical_ner:v0.1 sh run.sh

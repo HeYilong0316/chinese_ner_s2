@@ -6,12 +6,20 @@ import numpy as np
 import pandas as pd
 
 
-def get_analyze(root_dir, model, file_name="log_history.json", k_fold=10):
+def get_analyze(root_dir, 
+                model, 
+                file_name="log_history.json", 
+                model_name="pytorch_model.bin", 
+                k_fold=10, 
+                select=False, 
+                rm=False
+                ):
     analyze_df = []
     for i in range(k_fold):
         k_fold_dir = f"{i}_fold"
 
-        file_path = os.path.join(root_dir, k_fold_dir, file_name)
+        dir_path = os.path.join(root_dir, k_fold_dir)
+        file_path = os.path.join(dir_path, file_name)
         with open(file_path, "r", encoding="utf8") as r:
             log_history = json.load(r)
         
@@ -24,6 +32,21 @@ def get_analyze(root_dir, model, file_name="log_history.json", k_fold=10):
             if score > max_score:
                 max_score = score
                 max_epoch = log["epoch"]
+                max_step = log["step"]
+
+        if select:
+            # 把最优模型copy出来
+            model_path = os.path.join(dir_path, f"checkpoint-{max_step}", model_name)
+            cmd = f"cp {model_path} {dir_path}"
+            print("cmd: ", cmd)
+            os.system(cmd)
+        if rm:
+            # 多余的模型删掉
+            rm_path = os.path.join(dir_path, f"checkpoint-*")
+            cmd = f"rm -r  {rm_path}"
+            print("cmd: ", cmd)
+            os.system(cmd)
+
         analyze_df.append({
             "model": model,
             "fold": i, 
@@ -44,9 +67,9 @@ def get_analyze(root_dir, model, file_name="log_history.json", k_fold=10):
 
 
 if __name__ == "__main__":
-    root_dir = "../user_data/output_layer_lstm_crf"
+    root_dir = "../user_data/output/output_layer_lstm_crf"
     model = "bert+layer+lstm+crf"
     file_name = "log_history.json"
     k_fold = 10
-    analyze_df = get_analyze(root_dir, model, file_name, k_fold)
+    analyze_df = get_analyze(root_dir, model, file_name, k_fold=k_fold)
     print(analyze_df.to_markdown())

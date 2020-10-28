@@ -429,7 +429,7 @@ class Trainer:
             drop_last=self.args.dataloader_drop_last,
         )
 
-    def create_optimizer_and_scheduler(self, num_training_steps: int):
+    def create_optimizer_and_scheduler(self, num_training_steps: int, num_warmup_steps: int):
         """
         Setup the optimizer and the learning rate scheduler.
 
@@ -517,7 +517,7 @@ class Trainer:
                     }
             ]
 
-            elif self.model.id_cnn:
+            if self.model.id_cnn:
                 idcnn_param_optimizer = list(self.model.id_cnn.named_parameters())
                 optimizer_grouped_parameters += [
                     {
@@ -532,6 +532,20 @@ class Trainer:
                     }
             ]
 
+            if self.model.output_fusion:
+                output_fusion_param_optimizer = list(self.model.output_fusion.named_parameters())
+                optimizer_grouped_parameters += [
+                    {
+                        'params': [p for n, p in output_fusion_param_optimizer if not any(nd in n for nd in no_decay)], 
+                        'weight_decay': self.args.output_fusion_weight_decay,
+                        'lr': self.args.output_fusion_learning_rate
+                    },
+                    {
+                        'params': [p for n, p in output_fusion_param_optimizer if any(nd in n for nd in no_decay)], 
+                        'weight_decay': 0.0,
+                        'lr': self.args.output_fusion_learning_rate
+                    }
+            ]
 
             if self.model.crf:
                 crf_param_optimizer = list(self.model.crf.named_parameters())
@@ -552,7 +566,7 @@ class Trainer:
         if self.lr_scheduler is None:
 
             self.lr_scheduler = get_linear_schedule_with_warmup(
-                self.optimizer, num_warmup_steps=self.args.warmup_steps, num_training_steps=num_training_steps
+                self.optimizer, num_warmup_steps=num_warmup_steps, num_training_steps=num_training_steps
             )
             # self.lr_scheduler = get_polynomial_decay_schedule_with_warmup(
             #     self.optimizer, num_warmup_steps=self.args.warmup_steps, num_training_steps=num_training_steps
@@ -740,6 +754,9 @@ class Trainer:
         num_update_steps_per_epoch = len(
             train_dataloader) // self.args.gradient_accumulation_steps
         num_update_steps_per_epoch = max(num_update_steps_per_epoch, 1)
+
+        eval_log_save_steps = np.ceil(num_update_steps_per_epoch * self.args.save_epoch)
+
         if self.args.max_steps > 0:
             t_total = self.args.max_steps
             num_train_epochs = self.args.max_steps // num_update_steps_per_epoch + int(
@@ -751,7 +768,12 @@ class Trainer:
             num_train_epochs = self.args.num_train_epochs
             self.args.max_steps = t_total
 
-        self.create_optimizer_and_scheduler(num_training_steps=t_total)
+        num_warmup_steps = np.floor(t_total * self.args.warmup)
+        
+        logger.warning(f"max_step: {t_total}, eval_log_save_steps: {eval_log_save_steps}, num_warmup_steps: {num_warmup_steps}")
+
+        self.create_optimizer_and_scheduler(num_training_steps=t_total, num_warmup_steps=num_warmup_steps)
+
 
         # Check if saved optimizer or scheduler states exist
         if (
@@ -914,13 +936,13 @@ class Trainer:
                     self.epoch = epoch + (step + 1) / len(epoch_iterator)
                     epoch_pbar.update(1)
 
-                    if (self.args.logging_steps > 0 and self.global_step % self.args.logging_steps == 0) or (
+                    if (eval_log_save_steps > 0 and self.global_step % eval_log_save_steps == 0) or (
                         self.global_step == 1 and self.args.logging_first_step
                     ):
                         logs: Dict[str, float] = {}
                         tr_loss_scalar = tr_loss.item()
                         logs["loss"] = (
-                            tr_loss_scalar - logging_loss_scalar) / self.args.logging_steps
+                            tr_loss_scalar - logging_loss_scalar) / eval_log_save_steps
                         # backward compatibility for pytorch schedulers
                         # logs["learning_rate"] = (
                         #     self.lr_scheduler.get_last_lr()[0]
@@ -936,7 +958,7 @@ class Trainer:
 
                         self.log(logs)
 
-                    if self.args.evaluate_during_training and self.global_step % self.args.eval_steps == 0:
+                    if self.args.evaluate_during_training and self.global_step % eval_log_save_steps == 0:
                         print(self.global_step)
                         metrics = self.evaluate()
                         # logger.warning("--------eval---------")
@@ -944,7 +966,7 @@ class Trainer:
                         #     logger.warning("  %s = %s", key, value)
                         self._report_to_hp_search(trial, epoch, metrics)
 
-                    if self.args.save_steps > 0 and self.global_step % self.args.save_steps == 0:
+                    if eval_log_save_steps > 0 and self.global_step % eval_log_save_steps == 0:
                         # In all cases (even distributed/parallel), self.model is always a reference
                         # to the model we want to save.
                         if hasattr(model, "module"):
@@ -1538,10 +1560,11 @@ class Trainer:
             mode = None
             if description == "Prediction":
                 mode = "test"
+                metrics={}
             elif description == "Evaluation":
                 mode = "dev"
-            metrics = self.compute_metrics(EvalPrediction(
-                predictions=preds, label_ids=label_ids), mode=mode, dateset=dataloader.dataset)
+                metrics = self.compute_metrics(EvalPrediction(
+                    predictions=preds, label_ids=label_ids), mode=mode, dateset=dataloader.dataset)
         else:
             metrics = {}
         if len(eval_losses) > 0:

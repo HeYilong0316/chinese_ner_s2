@@ -152,10 +152,13 @@ class TrainingArguments:
     # 新增的参数----------------------------------------------------------------------------------------------------------
     
     use_crf: bool = field(default=False, metadata={"help": "Wether or not to use CRF"})
+    use_lexicon: bool = field(default=False, metadata={"help": "Wether or not to use CRF"})
     use_lstm: bool = field(default=False, metadata={"help": "Wether or not to use LSTM"})
     use_idcnn: bool = field(default=False, metadata={"help": "Wether or not to use IDCNN"})
+    use_lexicon: bool = field(default=False, metadata={"help": "Wether or not to use lexicon"})
     multi_layer_fusion: bool = field(default=False, metadata={"help": "Wether or not to use multi_layer_fusion"})
     gradient_checkpointing: bool = field(default=False, metadata={"help": "Whether to gradient_checkpointing."})
+    training_on_cloud: bool = field(default=False, metadata={"help": "warring mode if training on tianchi cloud because of limit of log."})
     dropout: float = field(default=0.001, metadata={"help": "dropout"})
 
     layer_weight_learning_rate: float = field(default=0.001, metadata={"help": "crf lr multiplier"})
@@ -166,6 +169,8 @@ class TrainingArguments:
     lstm_weight_decay: float = field(default=0., metadata={"help": "crf lr multiplier"})
     idcnn_learning_rate: float = field(default=0.001, metadata={"help": "crf lr multiplier"})
     idcnn_weight_decay: float = field(default=0., metadata={"help": "crf lr multiplier"})
+    output_fusion_learning_rate: float = field(default=0.001, metadata={"help": "crf lr multiplier"})
+    output_fusion_weight_decay: float = field(default=0., metadata={"help": "crf lr multiplier"})
     linear_learning_rate: float = field(default=0.001, metadata={"help": "crf lr multiplier"})
     linear_weight_decay: float = field(default=0., metadata={"help": "crf lr multiplier"})
     learning_rate: float = field(default=5e-5, metadata={"help": "The initial learning rate for Adam."})
@@ -173,6 +178,8 @@ class TrainingArguments:
     layer_decay: float = field(default=1.0, metadata={"help": "Weight decay if we apply some."})
 
     max_epoch: float = field(default=-1.0, metadata={"help": "Total epoch"})
+    warmup: float = field(default=0, metadata={"help": "Linear warmup over warmup_steps."})
+    save_epoch: float = field(default=1.0, metadata={"help": "Total epoch"})
 
     # -------------------------------------------------------------------------------------------------------------------
     do_train: bool = field(default=False, metadata={"help": "Whether to run training."})
@@ -224,7 +231,6 @@ class TrainingArguments:
         default=-1,
         metadata={"help": "If > 0: set total number of training steps to perform. Override num_train_epochs."},
     )
-    warmup_steps: int = field(default=0, metadata={"help": "Linear warmup over warmup_steps."})
 
     logging_dir: Optional[str] = field(default_factory=default_logdir, metadata={"help": "Tensorboard log dir."})
     logging_first_step: bool = field(default=False, metadata={"help": "Log and eval the first global_step"})

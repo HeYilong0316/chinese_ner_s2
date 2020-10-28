@@ -7,7 +7,7 @@ export DATA_DIR=$2
 export OUTPUT_DIR=$BERT_MODEL
 export BATCH_SIZE=32
 
-python run_ner.py \
+python -u run_ner.py \
 --task_type NER \
 --use_crf \
 --per_device_eval_batch_size $BATCH_SIZE \

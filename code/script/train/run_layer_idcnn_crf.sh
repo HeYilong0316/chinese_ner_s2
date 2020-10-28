@@ -1,21 +1,14 @@
-echo "文件路径：$1";
-echo "save_steps: $2";
-echo "warm_up: $3";
-echo "max_epoch: $4"
-echo "输出路径: $5";
-
 export MAX_LENGTH=512
 export BERT_MODEL=../user_data/model/chinese-roberta-wwm-large-ext
 
 
-
 export DATA_DIR=$1
 export OUTPUT_DIR=$5
-export BATCH_SIZE=10
-export NUM_EPOCHS=10
-export SAVE_STEPS=-1
+export BATCH_SIZE=$2
+export NUM_EPOCHS=$3
+export WARM_UP=0.15
+
 export SEED=666
-export WARM_UP=$3
 
 export LEARNING_RATE=1e-05
 export LW_LEARNING_RATE=1e-04
@@ -36,8 +29,13 @@ export CRF_WEIGHT_DECAY=1e-02
 
 export MAX_EPOCH=$4
 
+echo "文件路径: " $DATA_DIR
+echo "BATCH_SIZE:" $BATCH_SIZE
+echo "NUM_EPOCHS: " $NUM_EPOCHS
+echo "MAX_EPOCH: " $MAX_EPOCH
+echo "输出路径: " $OUTPUT_DIR
 
-python run_ner.py \
+python -u run_ner.py \
 --task_type NER \
 --use_crf \
 --dropout=$DROPOUT \
@@ -53,7 +51,7 @@ python run_ner.py \
 --idcnn_weight_decay $IDCNN_WEIGHT_DECAY \
 --crf_weight_decay $CRF_WEIGHT_DECAY \
 --linear_weight_decay $LINEAR_WEIGHT_DECAY \
---warmup_steps $WARM_UP \
+--warmup $WARM_UP \
 --max_grad_norm $MAX_GRAD_NORM \
 --data_dir $DATA_DIR \
 --model_name_or_path $BERT_MODEL \
@@ -63,12 +61,8 @@ python run_ner.py \
 --max_epoch $MAX_EPOCH \
 --per_device_train_batch_size $BATCH_SIZE \
 --per_device_eval_batch_size $BATCH_SIZE \
---save_steps $SAVE_STEPS \
---eval_steps $SAVE_STEPS \
---logging_steps $SAVE_STEPS \
 --seed $SEED \
 --do_train \
---do_predict \
 --overwrite_output_dir \
 --use_idcnn \
 --multi_layer_fusion \

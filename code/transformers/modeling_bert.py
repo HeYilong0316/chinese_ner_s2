@@ -1502,7 +1502,7 @@ class BertLayerFusion(nn.Module):
         self.config = config
         self.dense_size = 512
         self.layer_weight = nn.ModuleList([nn.Linear(
-            config.hidden_size, 1, bias=False) for _ in range(config.num_hidden_layers + 1)])
+            config.hidden_size, 1, bias=False) for _ in range(config.num_hidden_layers+1)])
         if self.dense_size == 512:
             self.dense = nn.Linear(config.hidden_size, self.dense_size)
 
@@ -1522,6 +1522,35 @@ class BertLayerFusion(nn.Module):
             layer_attention * layer_sequence_output, dim=2)
         if self.dense_size == 512:
             sequence_output = self.dense(sequence_output)
+
+        return sequence_output
+
+
+class BertOutputFusion(nn.Module):
+    """自动学习走哪个模型或直连"""
+
+    def __init__(self):
+        super().__init__()
+        self.dense_size = 512
+        self.hidden_size = 512
+        self.output_weight = nn.ModuleList([nn.Linear(
+            self.hidden_size, 1, bias=False) for _ in range(2)])
+        # self.dense = nn.Linear(self.hidden_size, self.dense_size)
+
+    def forward(self, output_sequence_hidden):
+        # (batch, layer, seq, hidden)
+        output_score = []
+        for i, output in enumerate(output_sequence_hidden):
+            output_score.append(self.output_weight[i](output))
+        # (batch, seq, layer)
+        output_score = torch.cat(output_score, dim=2)
+        # (batch, seq, layer, 1)
+        output_attention = nn.Softmax(dim=2)(output_score).unsqueeze(-1)
+        # (batch, seq, layer, hidden)
+        output_sequence_hidden = torch.stack(output_sequence_hidden, dim=2)
+        sequence_output = torch.sum(
+            output_attention * output_sequence_hidden, dim=2)
+        # sequence_output = self.dense(sequence_output)
 
         return sequence_output
 
@@ -1596,6 +1625,8 @@ class BertForTokenClassification(BertPreTrainedModel):
         self.lstm = None
         self.layer_fusion = None
         self.id_cnn = None
+        self.output_fusion = None
+
         self.lstm_hidden_size = config.hidden_size
         self.classifier_size = config.hidden_size
 
@@ -1604,17 +1635,18 @@ class BertForTokenClassification(BertPreTrainedModel):
             self.lstm_hidden_size = self.layer_fusion.dense_size
             self.classifier_size = self.layer_fusion.dense_size
 
-        if use_lstm and use_idcnn:
-            raise ValueError("lstm 和 id_cnn 二选一")
-
         if use_lstm:
             from torch.nn import LSTM
             self.lstm = LSTM(self.lstm_hidden_size, self.lstm_hidden_size //
                              2, batch_first=True, bidirectional=True)
         
-        elif use_idcnn:
+        if use_idcnn:
             self.id_cnn = IDCNN(config, self.lstm_hidden_size)
             self.classifier_size = self.id_cnn.dense_size * self.id_cnn.repeat_times
+
+        if use_idcnn and use_lstm:
+            logger.info("lstm与idcnn输出结果动态融合")
+            self.output_fusion = BertOutputFusion()
 
         if use_crf:
             from torchcrf import CRF
@@ -1639,6 +1671,7 @@ class BertForTokenClassification(BertPreTrainedModel):
         position_ids=None,
         head_mask=None,
         inputs_embeds=None,
+        lexicon_mask=None,
         labels=None,
         output_attentions=None,
         output_hidden_states=None,
@@ -1675,14 +1708,19 @@ class BertForTokenClassification(BertPreTrainedModel):
                 outputs = outputs[:1]
         else:
             sequence_output = outputs[0]
-
+        if lexicon_mask is not None:
+            sequence_output = sequence_output * torch.unsqueeze(lexicon_mask, dim=-1)
         sequence_output = self.dropout(sequence_output)
 
-        if self.lstm:
+        if self.lstm and self.id_cnn:
+            sequence_output_lstm, (_, _) = self.lstm(sequence_output)
+            sequence_output_idcnn = self.id_cnn(sequence_output)
+            sequence_output = self.output_fusion([sequence_output_lstm, sequence_output_idcnn])
+        elif self.lstm and not self.id_cnn:
             sequence_output, (_, _) = self.lstm(sequence_output)
-        elif self.id_cnn:
+        elif self.id_cnn and not self.lstm:
             sequence_output = self.id_cnn(sequence_output)
-
+       
         loss = None
         logits = self.classifier(sequence_output)
 

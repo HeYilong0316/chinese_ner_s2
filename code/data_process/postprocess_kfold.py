@@ -2,7 +2,6 @@ import sys
 print(sys.path)
 
 K_FOLD = 10
-K_WEIGHT = [1] * 10
 
 import pandas as pd
 import os
@@ -90,14 +89,10 @@ def save(file_id, entities, path, txt_file_dir):
 def vote(submit_k_fold, n=None):
     '''投票'''
     import numpy as np
-    k_weight = [w * 100 for w in K_WEIGHT]
-    print(k_weight)
-    k_weight = np.exp(k_weight)
-    k_weight = [w / sum(k_weight) for w in k_weight]
-    print(k_weight)
     if n is None:
         # 过半数票
-        n = 5
+        n = np.ceil(len(submit_k_fold) / 2)
+        print(f"票数过半: {n}")
 
     submit = []
     all_file_id = set()
@@ -124,17 +119,17 @@ def main():
         # submit_one_fold = PostProcess(predict_file, txt_file_dir).conll2brat()
         # submit_k_fold.append(submit_one_fold)
         
-        # predict_file = f"../user_data/output_lstm_crf/{i}_fold/test_predictions.txt"
-        # submit_one_fold = PostProcess(predict_file, txt_file_dir).conll2brat()
-        # submit_k_fold.append(submit_one_fold)
-        
-        # predict_file = f"../user_data/output_layer_idcnn_crf/{i}_fold/test_predictions.txt"     
-        # submit_one_fold = PostProcess(predict_file, txt_file_dir).conll2brat()
-        # submit_k_fold.append(submit_one_fold)
-
-        predict_file = f"../user_data/output_layer_lstm_crf/{i}_fold/test_predictions.txt"     
+        predict_file = f"../user_data/output/output_layer_lstm_crf/{i}_fold/test_predictions.txt"
         submit_one_fold = PostProcess(predict_file, txt_file_dir).conll2brat()
         submit_k_fold.append(submit_one_fold)
+        
+        predict_file = f"../user_data/output/output_layer_idcnn_crf/{i}_fold/test_predictions.txt"     
+        submit_one_fold = PostProcess(predict_file, txt_file_dir).conll2brat()
+        submit_k_fold.append(submit_one_fold)
+
+        # predict_file = f"../user_data/output/output_layer_output_crf/{i}_fold/test_predictions.txt"     
+        # submit_one_fold = PostProcess(predict_file, txt_file_dir).conll2brat()
+        # submit_k_fold.append(submit_one_fold)
 
     submit = vote(submit_k_fold)
 
