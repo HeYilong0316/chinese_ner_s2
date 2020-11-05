@@ -1502,7 +1502,7 @@ class BertLayerFusion(nn.Module):
         self.config = config
         self.dense_size = 512
         self.layer_weight = nn.ModuleList([nn.Linear(
-            config.hidden_size, 1, bias=False) for _ in range(config.num_hidden_layers+1)])
+            config.hidden_size, 1, bias=False) for _ in range(config.num_hidden_layers)])
         if self.dense_size == 512:
             self.dense = nn.Linear(config.hidden_size, self.dense_size)
 
@@ -1568,7 +1568,7 @@ class IDCNN(nn.Module):
         self.dropout = nn.Dropout(0.5)
         padding = math.ceil((self.filter_width - 1) // 2)
         self.cnn = nn.Conv1d(in_channels=hidden_size, out_channels=self.dense_size, kernel_size=self.filter_width, padding=padding)
-
+        # self.dense = nn.Linear(self.dense_size * self.repeat_times, 512)
         id_cnn_layer = []
         for dilation in self.dilations:
             padding = math.ceil(dilation * (self.filter_width - 1) // 2)
@@ -1599,6 +1599,8 @@ class IDCNN(nn.Module):
         id_cnn_outputs = id_cnn_outputs.permute(0, 2, 1)
         sequence_output = self.dropout(id_cnn_outputs)
 
+        # sequence_output = self.dense(sequence_output)
+
         return sequence_output
 
 
@@ -1616,6 +1618,7 @@ class BertForTokenClassification(BertPreTrainedModel):
         use_lstm = training_args.use_lstm
         use_idcnn = training_args.use_idcnn
         multi_layer_fusion = training_args.multi_layer_fusion
+        use_words = training_args.use_words
         dropout = training_args.dropout
 
         self.bert = BertModel(config)
@@ -1626,20 +1629,32 @@ class BertForTokenClassification(BertPreTrainedModel):
         self.layer_fusion = None
         self.id_cnn = None
         self.output_fusion = None
+        self.word_embedding = None
+        self.words_dense = None
 
         self.lstm_hidden_size = config.hidden_size
         self.classifier_size = config.hidden_size
+
+
 
         if multi_layer_fusion:
             self.layer_fusion = BertLayerFusion(config)
             self.lstm_hidden_size = self.layer_fusion.dense_size
             self.classifier_size = self.layer_fusion.dense_size
 
+        if use_words:
+            import numpy as np
+            embedding = np.load(training_args.word_embedding_path)
+            self.word_embedding = nn.Embedding(len(embedding), len(embedding[0]))
+            self.word_embedding.weight.data.copy_ (torch.from_numpy(embedding))
+            self.lstm_hidden_size = self.lstm_hidden_size + len(embedding[0])
+            self.classifier_size = self.classifier_size + len(embedding[0])
+
         if use_lstm:
             from torch.nn import LSTM
             self.lstm = LSTM(self.lstm_hidden_size, self.lstm_hidden_size //
                              2, batch_first=True, bidirectional=True)
-        
+                   
         if use_idcnn:
             self.id_cnn = IDCNN(config, self.lstm_hidden_size)
             self.classifier_size = self.id_cnn.dense_size * self.id_cnn.repeat_times
@@ -1672,6 +1687,7 @@ class BertForTokenClassification(BertPreTrainedModel):
         head_mask=None,
         inputs_embeds=None,
         lexicon_mask=None,
+        words_id=None,
         labels=None,
         output_attentions=None,
         output_hidden_states=None,
@@ -1710,6 +1726,12 @@ class BertForTokenClassification(BertPreTrainedModel):
             sequence_output = outputs[0]
         if lexicon_mask is not None:
             sequence_output = sequence_output * torch.unsqueeze(lexicon_mask, dim=-1)
+            attention_mask = lexicon_mask
+        
+        if self.word_embedding is not None:
+            embeddings = self.word_embedding(words_id)
+            sequence_output = torch.cat([sequence_output, embeddings], dim=-1)
+            # sequence_output = self.words_dense(sequence_output)
         sequence_output = self.dropout(sequence_output)
 
         if self.lstm and self.id_cnn:

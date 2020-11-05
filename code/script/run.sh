@@ -7,24 +7,24 @@ export OUTPUT_DIR=$OUTPUT_DIR_BASE/output_layer_lstm_crf
 export RUN_TRAIN_FILE=script/train/run_layer_lstm_crf.sh
 export RUN_PREDICT_FILE=script/predict/run_layer_lstm_crf.sh
 
-for i in `seq 0 1`
+for i in `seq 0 9`
 do
-    sh $RUN_TRAIN_FILE $DATA_DIR/"fold_"$i 10 2 -1 $OUTPUT_DIR/$i"_fold"
-    sh $RUN_PREDICT_FILE $OUTPUT_DIR/$i"_fold"/ $DATA_DIR
+    sh $RUN_TRAIN_FILE $DATA_DIR/"fold_"$i 10 10 -1 $OUTPUT_DIR/$i"_fold" $DATA_DIR
+    # sh $RUN_PREDICT_FILE $OUTPUT_DIR/$i"_fold"/ $DATA_DIR
     rm $OUTPUT_DIR/$i"_fold"/pytorch_model.bin
 done
 
-# layer+idcnn+crf
-export OUTPUT_DIR=$OUTPUT_DIR_BASE/output_layer_idcnn_crf
-export RUN_TRAIN_FILE=script/train/run_layer_idcnn_crf.sh
-export RUN_PREDICT_FILE=script/predict/run_layer_idcnn_crf.sh
+# # layer+idcnn+crf
+# export OUTPUT_DIR=$OUTPUT_DIR_BASE/output_layer_idcnn_crf
+# export RUN_TRAIN_FILE=script/train/run_layer_idcnn_crf.sh
+# export RUN_PREDICT_FILE=script/predict/run_layer_idcnn_crf.sh
 
-for i in `seq 0 1`
-do
-    sh $RUN_TRAIN_FILE $DATA_DIR/"fold_"$i 10 2 -1 $OUTPUT_DIR/$i"_fold"
-    sh $RUN_PREDICT_FILE $OUTPUT_DIR/$i"_fold"/ $DATA_DIR
-    rm $OUTPUT_DIR/$i"_fold"/pytorch_model.bin
-done
+# for i in `seq 0 9`
+# do
+#     sh $RUN_TRAIN_FILE $DATA_DIR/"fold_"$i 10 10 -1 $OUTPUT_DIR/$i"_fold" $DATA_DIR
+#     # sh $RUN_PREDICT_FILE $OUTPUT_DIR/$i"_fold"/ $DATA_DIR
+#     rm $OUTPUT_DIR/$i"_fold"/pytorch_model.bin
+# done
 
 
 

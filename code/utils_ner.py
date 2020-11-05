@@ -58,6 +58,8 @@ class InputFeatures:
     token_type_ids: Optional[List[int]] = None
     label_ids: Optional[List[int]] = None
     lexicon_mask: Optional[List[int]] = None
+    position_ids: Optional[List[int]] = None
+    words_id: Optional[List[int]] = None
 
 
 class Split(Enum):
@@ -90,8 +92,7 @@ class TokenClassificationTask:
         pad_token_label_id=-100,
         sequence_a_segment_id=0,
         mask_padding_with_zero=True,
-        use_crf=False,
-        use_lexicon=False
+        training_args = None
     ) -> List[InputFeatures]:
         """Loads a data file into a list of `InputFeatures`
         `cls_token_at_end` define the location of the CLS token:
@@ -102,14 +103,28 @@ class TokenClassificationTask:
         # TODO clean up all this to leverage built-in features of tokenizers
 
         # 加载lexicon抽取器
-        if use_lexicon:
+        if training_args.use_lexicon:
             from ruler.lexicon_extractor import lexicon_extractor
             lexicon_extractor = lexicon_extractor
         else:
             lexicon_extractor = None
 
+        if training_args.use_words:
+            from ruler.word_cuter import WordCuter
+            index = 0
+            word2id = {}
+            with open(training_args.word_vocab_path, "r", encoding="utf8") as r:
+                for line in r:
+                    word, _ = line.split(" ")
+                    word2id[word] = index
+                    index += 1
+            cuter = WordCuter(list(word2id.keys()))
+
+
+
+
         label_map = {label: i for i, label in enumerate(label_list)}
-        if use_crf:
+        if training_args.use_crf:
             pad_token_label_id = label_map["O"]
 
         features = []
@@ -119,11 +134,21 @@ class TokenClassificationTask:
 
             tokens = []
             label_ids = []
+            words = []
             for word, label in zip(example.words, example.labels):
                 word_tokens = tokenizer.tokenize(word)
-                lexicons = lexicon_extractor.extract(word) if lexicon_extractor else None
-                if lexicons:
-                    lexicons = [tokenizer.tokenize(lexicon[0]) for lexicon in lexicons]
+                if training_args.use_words:
+                    # subword不利于词向量对齐
+                    tmp = []
+                    for t in word_tokens:
+                        if t in ["[unused1]", "[UNK]"]:
+                            tmp.append(t)
+                        else:
+                            if t.startswith("##"):
+                                t = t[2:]
+                            tmp.extend(list(t))
+                    word_tokens = tmp
+
                 if label == "O":
                     label = ["O"] * len(word_tokens)
                 else:
@@ -135,11 +160,42 @@ class TokenClassificationTask:
                     # Use the real label id for the first token of the word, and padding ids for the remaining tokens
                     label_ids.extend([label_map[l] for l in label])
 
+            string = "".join(tokens)
+            lexicons = lexicon_extractor.extract(string) if lexicon_extractor else None
+            if lexicons is not None:
+                lexicons = [[tokenizer.tokenize(lexicon[0]), lexicon[1], lexicon[2]] for lexicon in lexicons]
+            
+            words = cuter.cut(string) if training_args.use_words else None
+            # print(words)
+            # print(tokens)
+            words_id = None
+            if words is not None:
+                # token对齐到word
+                words_id = [word2id["[UNK]"]] * len(tokens)
+                i = 0
+                for word in words:
+                    j = 0
+                    wid = word2id.get(word, word2id["[UNK]"])
+                    if word in ["[UNK]", "[unused1]"]:
+                        assert tokens[i] in ["[UNK]", "[unused1]"], [tokens[i]]
+                        words_id[i] = wid
+                        i += 1
+                        continue
+                    for char in word:
+                        assert char == tokens[i], [char, tokens[i]]
+                        words_id[i] =  wid
+                        i += 1
+
+            # print(len(tokens))
+            # print(len(words_id))
             # Account for [CLS] and [SEP] with "- 2" and with "- 3" for RoBERTa.
             special_tokens_count = tokenizer.num_special_tokens_to_add()
             if len(tokens) > max_seq_length - special_tokens_count:
                 tokens = tokens[: (max_seq_length - special_tokens_count)]
                 label_ids = label_ids[: (max_seq_length - special_tokens_count)]
+                if words_id is not None:
+                    words_id = words_id[: (max_seq_length - special_tokens_count)]
+
 
             # The convention in BERT is:
             # (a) For sequence pairs:
@@ -161,15 +217,23 @@ class TokenClassificationTask:
             # the entire model is fine-tuned.
             tokens += [sep_token]
             label_ids += [pad_token_label_id]
+            if words_id is not None:
+                words_id += [word2id["[unused1]"]]
+
+
+            position_ids = None
+            lexicon_mask = None
 
             if lexicons is not None:
                 lexicon_mask = [1] * len(tokens)
+                position_ids = list(range(1, len(tokens)+1))
                 for lexicon in lexicons:
-                    tokens += (lexicon + [sep_token])
-                    label_ids += [label_map["O"]] * (len(lexicon)+1)
-                    lexicon_mask += [0] * (len(lexicon)+1)
-            else:
-                lexicon_mask = None
+                    tokens += (lexicon[0] + [sep_token])
+                    position_ids += list(range(lexicon[1]+1, lexicon[1]+1+len(lexicon[0]))) + [0] # 此时还没添加[CLS]
+                    label_ids += [label_map["O"]] * (len(lexicon[0])+1)
+                    lexicon_mask += [0] * (len(lexicon[0])+1)
+
+                
 
             if sep_token_extra:
                 # roberta uses an extra separator b/w pairs of sentences
@@ -181,12 +245,18 @@ class TokenClassificationTask:
                 tokens += [cls_token]
                 label_ids += [pad_token_label_id]
                 segment_ids += [cls_token_segment_id]
+                if words_id is not None:
+                    words_id += [word2id["[unused1]"]]
             else:
                 tokens = [cls_token] + tokens
                 label_ids = [pad_token_label_id] + label_ids
                 segment_ids = [cls_token_segment_id] + segment_ids
                 if lexicon_mask is not None:
                     lexicon_mask = [1] + lexicon_mask
+                if position_ids is not None:
+                    position_ids = [0] + position_ids
+                if words_id is not None:
+                    words_id = [word2id["[unused1]"]] + words_id
 
             input_ids = tokenizer.convert_tokens_to_ids(tokens)
 
@@ -203,6 +273,12 @@ class TokenClassificationTask:
                 label_ids = ([pad_token_label_id] * padding_length) + label_ids
                 if lexicon_mask is not None:
                     lexicon_mask = ([pad_token_label_id] * padding_length) + lexicon_mask
+                if position_ids is not None:
+                    position_ids = ([pad_token_label_id] * padding_length) + position_ids
+                if word2id is not None:
+                    word2id = ([pad_token_label_id] * padding_length) + word2id
+
+
             else:
                 input_ids += [pad_token] * padding_length
                 input_mask += [0 if mask_padding_with_zero else 1] * padding_length
@@ -210,13 +286,21 @@ class TokenClassificationTask:
                 label_ids += [pad_token_label_id] * padding_length
                 if lexicon_mask is not None:
                     lexicon_mask += [pad_token_label_id] * padding_length
+                if position_ids is not None:
+                    position_ids += [pad_token_label_id] * padding_length
+                if words_id is not None:
+                    words_id += [pad_token_label_id] * padding_length
 
-            assert len(input_ids) == max_seq_length
-            assert len(input_mask) == max_seq_length
-            assert len(segment_ids) == max_seq_length
-            assert len(label_ids) == max_seq_length
+            assert len(input_ids) == max_seq_length, [len(input_ids), max_seq_length]
+            assert len(input_mask) == max_seq_length, [len(input_mask), max_seq_length]
+            assert len(segment_ids) == max_seq_length, [len(segment_ids), max_seq_length]
+            assert len(label_ids) == max_seq_length, [len(label_ids), max_seq_length]
             if lexicon_mask is not None:
-                assert len(lexicon_mask) == max_seq_length
+                assert len(lexicon_mask) == max_seq_length, [len(lexicon_mask), max_seq_length]
+            if position_ids is not None:
+                assert len(position_ids) == max_seq_length, [len(position_ids), max_seq_length]
+            if words_id is not None:
+                assert len(words_id) == max_seq_length, [len(words_id), max_seq_length]
 
             if ex_index < 5:
                 logger.info("*** Example ***")
@@ -226,15 +310,21 @@ class TokenClassificationTask:
                 logger.info("input_mask: %s", " ".join([str(x) for x in input_mask]))
                 logger.info("segment_ids: %s", " ".join([str(x) for x in segment_ids]))
                 logger.info("label_ids: %s", " ".join([str(x) for x in label_ids]))
-                if lexicon_mask:
+                if lexicon_mask is not None:
                     logger.info("lexicon_mask: %s", " ".join([str(x) for x in lexicon_mask]))
+                if position_ids is not None:
+                    logger.info("position_ids: %s", " ".join([str(x) for x in position_ids]))
+                if words is not None:
+                    logger.info("words: %s", " ".join([str(x) for x in words]))
+                if words_id is not None:
+                    logger.info("words_id: %s", " ".join([str(x) for x in words_id]))
 
             if "token_type_ids" not in tokenizer.model_input_names:
                 segment_ids = None
 
             features.append(
                 InputFeatures(
-                    input_ids=input_ids, attention_mask=input_mask, token_type_ids=segment_ids, label_ids=label_ids, lexicon_mask=lexicon_mask
+                    input_ids=input_ids, attention_mask=input_mask, token_type_ids=segment_ids, label_ids=label_ids, lexicon_mask=lexicon_mask, position_ids=position_ids, words_id=words_id
                 )
             )
         return features
@@ -267,8 +357,7 @@ if is_torch_available():
             max_seq_length: Optional[int] = None,
             overwrite_cache=False,
             mode: Split = Split.train,
-            use_crf=False,
-            use_lexicon=False
+            training_args = None
         ):
             # Load data features from cache or dataset file
             cached_features_file = os.path.join(
@@ -304,8 +393,7 @@ if is_torch_available():
                         pad_token=tokenizer.pad_token_id,
                         pad_token_segment_id=tokenizer.pad_token_type_id,
                         pad_token_label_id=self.pad_token_label_id,
-                        use_crf=use_crf,
-                        use_lexicon=use_lexicon
+                        training_args = training_args
                     )
                     logger.info(f"Saving features into cached file {cached_features_file}")
                     torch.save(self.features, cached_features_file)

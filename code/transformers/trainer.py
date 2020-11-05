@@ -557,6 +557,36 @@ class Trainer:
                     },
                 ]
 
+            if self.model.word_embedding:
+                word_embedding_param_optimizer = list(self.model.word_embedding.named_parameters())
+                optimizer_grouped_parameters += [
+                    {
+                        'params': [p for n, p in word_embedding_param_optimizer if not any(nd in n for nd in no_decay)], 
+                        'weight_decay': self.args.we_weight_decay,
+                        'lr': self.args.we_learning_rate
+                    },
+                    {
+                        'params': [p for n, p in word_embedding_param_optimizer if any(nd in n for nd in no_decay)], 
+                        'weight_decay': 0.0,
+                        'lr': self.args.we_learning_rate
+                    }
+                ]
+
+            if self.model.words_dense:
+                words_dense_param_optimizer = list(self.model.words_dense.named_parameters())
+                optimizer_grouped_parameters += [
+                    {
+                        'params': [p for n, p in words_dense_param_optimizer if not any(nd in n for nd in no_decay)], 
+                        'weight_decay': self.args.wd_weight_decay,
+                        'lr': self.args.wd_learning_rate
+                    },
+                    {
+                        'params': [p for n, p in words_dense_param_optimizer if any(nd in n for nd in no_decay)], 
+                        'weight_decay': 0.0,
+                        'lr': self.args.wd_learning_rate
+                    }
+                ]
+
             self.optimizer = AdamW(
                 optimizer_grouped_parameters,
                 lr=self.args.learning_rate,
@@ -872,6 +902,11 @@ class Trainer:
         disable_tqdm = self.args.disable_tqdm or not self.is_local_process_zero()
         train_pbar = trange(epochs_trained, int(
             np.ceil(num_train_epochs)), desc="Epoch", disable=disable_tqdm)
+
+        early_stop_step = 0
+        max_score = 0
+        is_early_stop = False
+
         for epoch in range(epochs_trained, int(np.ceil(num_train_epochs))):
             if self.args.max_epoch > 0 and epoch >= self.args.max_epoch:
                 break
@@ -959,11 +994,22 @@ class Trainer:
                         self.log(logs)
 
                     if self.args.evaluate_during_training and self.global_step % eval_log_save_steps == 0:
-                        print(self.global_step)
                         metrics = self.evaluate()
                         # logger.warning("--------eval---------")
                         # for key, value in metrics.items():
                         #     logger.warning("  %s = %s", key, value)
+                        if metrics["eval_all_f_score"] > max_score:
+                            max_score = metrics["eval_all_f_score"]
+                            early_stop_step = 0
+                            logger.warning(f"Get New Max Score !!! {max_score} for epoch {epoch} and step {self.global_step}")
+                        else:
+                            early_stop_step += 1
+                        
+                        if early_stop_step >= 5:
+                            is_early_stop = True
+                            break
+                            
+
                         self._report_to_hp_search(trial, epoch, metrics)
 
                     if eval_log_save_steps > 0 and self.global_step % eval_log_save_steps == 0:
@@ -1017,6 +1063,9 @@ class Trainer:
                         "configured. Check your training configuration if this is unexpected."
                     )
             if self.args.max_steps > 0 and self.global_step >= self.args.max_steps:
+                break
+            if is_early_stop:
+                logger.warning("Run Early Stop !")
                 break
 
 

@@ -151,11 +151,19 @@ class TrainingArguments:
 
     # 新增的参数----------------------------------------------------------------------------------------------------------
     
+    word_vocab_path: str = field(default="",
+        metadata={"help": "The output directory where the model predictions and checkpoints will be written."}
+    )
+    word_embedding_path: str = field(default="",
+        metadata={"help": "The output directory where the model predictions and checkpoints will be written."}
+    )
+
     use_crf: bool = field(default=False, metadata={"help": "Wether or not to use CRF"})
     use_lexicon: bool = field(default=False, metadata={"help": "Wether or not to use CRF"})
     use_lstm: bool = field(default=False, metadata={"help": "Wether or not to use LSTM"})
     use_idcnn: bool = field(default=False, metadata={"help": "Wether or not to use IDCNN"})
     use_lexicon: bool = field(default=False, metadata={"help": "Wether or not to use lexicon"})
+    use_words: bool = field(default=False, metadata={"help": "Wether or not to use words"})
     multi_layer_fusion: bool = field(default=False, metadata={"help": "Wether or not to use multi_layer_fusion"})
     gradient_checkpointing: bool = field(default=False, metadata={"help": "Whether to gradient_checkpointing."})
     training_on_cloud: bool = field(default=False, metadata={"help": "warring mode if training on tianchi cloud because of limit of log."})
@@ -173,6 +181,10 @@ class TrainingArguments:
     output_fusion_weight_decay: float = field(default=0., metadata={"help": "crf lr multiplier"})
     linear_learning_rate: float = field(default=0.001, metadata={"help": "crf lr multiplier"})
     linear_weight_decay: float = field(default=0., metadata={"help": "crf lr multiplier"})
+    we_learning_rate: float = field(default=0.001, metadata={"help": "crf lr multiplier"})
+    we_weight_decay: float = field(default=0., metadata={"help": "crf lr multiplier"})
+    wd_learning_rate: float = field(default=0.001, metadata={"help": "crf lr multiplier"})
+    wd_weight_decay: float = field(default=0., metadata={"help": "crf lr multiplier"})
     learning_rate: float = field(default=5e-5, metadata={"help": "The initial learning rate for Adam."})
     weight_decay: float = field(default=0.0, metadata={"help": "Weight decay if we apply some."})
     layer_decay: float = field(default=1.0, metadata={"help": "Weight decay if we apply some."})

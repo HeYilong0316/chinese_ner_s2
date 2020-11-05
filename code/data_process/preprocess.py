@@ -20,7 +20,7 @@ logger = logging.getLogger(__name__)
 user_data_dir = "../user_data/data"
 test_dir_path = "/tcdata/juesai"
 # test_dir_path = "/home/heyilong/codes/chinese_medical_ner/user_data/chusai_xuanshou"
-train_dir_path = "../data/train"
+train_dir_path = "../user_data/data/train"
 
 
 try:
@@ -494,8 +494,9 @@ def run(file_name_list, lexicon_extractor, mode):
     for conll in conlls:
         string = "".join([s[0] for s in conll]).replace("[unused1]", " ")
         length = len(conll) + 2
-        lexicons = lexicon_extractor.extract_keywords(string)
+        lexicons = lexicon_extractor.extract(string)
         for lexicon in lexicons:
+            lexicon = lexicon[0]
             length += len(lexicon) + 1
         if  max_lexicon_len < length:
             max_lexicon_len = length
@@ -591,9 +592,7 @@ def main_k_fold(mode):
     if not os.path.exists(k_fold_dir):
         os.mkdir(k_fold_dir)
 
-    lexicon = make_lexicon()
-    lexicon_extractor = KeywordProcessor()
-    lexicon_extractor.add_keywords_from_list(lexicon)
+    from ruler.lexicon_extractor import lexicon_extractor
 
     k_fold = KFold(n_splits=K_FOLD, shuffle=True, random_state=2333)
 

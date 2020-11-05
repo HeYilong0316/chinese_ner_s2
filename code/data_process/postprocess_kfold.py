@@ -120,12 +120,14 @@ def main():
         # submit_k_fold.append(submit_one_fold)
         
         predict_file = f"../user_data/output/output_layer_lstm_crf/{i}_fold/test_predictions.txt"
-        submit_one_fold = PostProcess(predict_file, txt_file_dir).conll2brat()
-        submit_k_fold.append(submit_one_fold)
+        if os.path.exists(predict_file):   
+            submit_one_fold = PostProcess(predict_file, txt_file_dir).conll2brat()
+            submit_k_fold.append(submit_one_fold)
         
-        predict_file = f"../user_data/output/output_layer_idcnn_crf/{i}_fold/test_predictions.txt"     
-        submit_one_fold = PostProcess(predict_file, txt_file_dir).conll2brat()
-        submit_k_fold.append(submit_one_fold)
+        predict_file = f"../user_data/output/output_layer_idcnn_crf/{i}_fold/test_predictions.txt" 
+        if os.path.exists(predict_file):    
+            submit_one_fold = PostProcess(predict_file, txt_file_dir).conll2brat()
+            submit_k_fold.append(submit_one_fold)
 
         # predict_file = f"../user_data/output/output_layer_output_crf/{i}_fold/test_predictions.txt"     
         # submit_one_fold = PostProcess(predict_file, txt_file_dir).conll2brat()

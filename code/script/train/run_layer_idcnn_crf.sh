@@ -3,6 +3,7 @@ export BERT_MODEL=../user_data/model/chinese-roberta-wwm-large-ext
 
 
 export DATA_DIR=$1
+export TEST_DATA_DIR=$6
 export OUTPUT_DIR=$5
 export BATCH_SIZE=$2
 export NUM_EPOCHS=$3
@@ -29,7 +30,8 @@ export CRF_WEIGHT_DECAY=1e-02
 
 export MAX_EPOCH=$4
 
-echo "文件路径: " $DATA_DIR
+echo "训练文件路径: " $DATA_DIR
+echo "测试文件路径": $TEST_DATA_DIR
 echo "BATCH_SIZE:" $BATCH_SIZE
 echo "NUM_EPOCHS: " $NUM_EPOCHS
 echo "MAX_EPOCH: " $MAX_EPOCH
@@ -54,6 +56,7 @@ python -u run_ner.py \
 --warmup $WARM_UP \
 --max_grad_norm $MAX_GRAD_NORM \
 --data_dir $DATA_DIR \
+--test_data_dir $TEST_DATA_DIR \
 --model_name_or_path $BERT_MODEL \
 --output_dir $OUTPUT_DIR \
 --max_seq_length  $MAX_LENGTH \
@@ -62,7 +65,10 @@ python -u run_ner.py \
 --per_device_train_batch_size $BATCH_SIZE \
 --per_device_eval_batch_size $BATCH_SIZE \
 --seed $SEED \
+--evaluate_during_training \
 --do_train \
+--do_eval \
+--do_predict \
 --overwrite_output_dir \
 --use_idcnn \
 --multi_layer_fusion \

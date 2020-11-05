@@ -81,6 +81,9 @@ class DataTrainingArguments:
     data_dir: str = field(
         metadata={"help": "The input data dir. Should contain the .txt files for a CoNLL-2003-formatted task."}
     )
+    test_data_dir: str = field(
+        metadata={"help": "The input data dir. Should contain the .txt files for a CoNLL-2003-formatted task."}
+    )
     labels: Optional[str] = field(
         default=None,
         metadata={"help": "Path to a file containing all labels. If not specified, CoNLL-2003 labels are used."},
@@ -219,8 +222,7 @@ def main():
             max_seq_length=data_args.max_seq_length,
             overwrite_cache=data_args.overwrite_cache,
             mode=Split.train,
-            use_crf=training_args.use_crf,
-            use_lexicon=training_args.use_lexicon
+            training_args = training_args
         )
         if training_args.do_train
         else None
@@ -235,10 +237,9 @@ def main():
             max_seq_length=data_args.max_seq_length,
             overwrite_cache=data_args.overwrite_cache,
             mode=Split.dev,
-            use_crf=training_args.use_crf,
-            use_lexicon=training_args.use_lexicon
+            training_args = training_args
         )
-        if training_args.do_eval or training_args.do_predict_dev or training_args.args.evaluate_during_training
+        if training_args.do_eval or training_args.do_predict_dev or training_args.evaluate_during_training
         else None
     )
 
@@ -328,7 +329,12 @@ def main():
         preds_list, out_label_list = align_predictions(p.predictions, p.label_ids, dateset)
         words_list, preds_list = post_align_predictions(dateset, preds_list, tokenizer)
 
-        reader_file = os.path.join(data_args.data_dir, f"{mode}.txt")
+        if mode == "dev":
+            reader_file = os.path.join(data_args.data_dir, f"{mode}.txt")
+        elif mode == "test":
+            reader_file = os.path.join(data_args.test_data_dir, f"{mode}.txt")
+        else:
+            raise ValueError(f"mode is error: {mode}")
 
         if mode == "dev":
             data_dir = "../user_data/data/train"
@@ -396,6 +402,24 @@ def main():
 
         select_model(training_args.output_dir, k_fold=10, select=True, rm=True)
 
+    if training_args.do_eval or training_args.do_predict or training_args.do_predict_dev:
+        model = AutoModelForTokenClassification.from_pretrained(
+            training_args.output_dir,
+            from_tf=bool(".ckpt" in model_args.model_name_or_path),
+            config=config,
+            cache_dir=model_args.cache_dir,
+            training_args=training_args
+        )
+
+        trainer = Trainer(
+            model=model,
+            args=training_args,
+            train_dataset=train_dataset,
+            eval_dataset=eval_dataset,
+            compute_metrics=compute_metrics,
+        )
+        logger.warn(f"load best mode from {training_args.output_dir}")
+
     # Evaluation
     results = {}
     if training_args.do_eval:
@@ -417,15 +441,14 @@ def main():
     if training_args.do_predict:
         test_dataset = TokenClassificationDataset(
             token_classification_task=token_classification_task,
-            data_dir=data_args.data_dir,
+            data_dir=data_args.test_data_dir,
             tokenizer=tokenizer,
             labels=labels,
             model_type=config.model_type,
             max_seq_length=data_args.max_seq_length,
             overwrite_cache=data_args.overwrite_cache,
             mode=Split.test,
-            use_crf=training_args.use_crf,
-            use_lexicon=training_args.use_lexicon
+            training_args = training_args
         )
 
         # logger.warning(list(zip(tokens_list[3], test_dataset.features[3].input_ids)))
@@ -446,7 +469,7 @@ def main():
         output_test_predictions_file = os.path.join(training_args.output_dir, "test_predictions.txt")
         if trainer.is_world_master():
             with open(output_test_predictions_file, "w") as writer:
-                with open(os.path.join(data_args.data_dir, "test.txt"), "r") as f:
+                with open(os.path.join(data_args.test_data_dir, "test.txt"), "r") as f:
                     token_classification_task.write_predictions_to_file(writer, f, preds_list, words_list)
 
 
@@ -569,6 +592,7 @@ def conver_entity_list_to_tuple(reader, preds_list, words_list, data_dir):
                 predict_data.append(pre_entity_tuple)
                 real_data.append(real_entity_tuple)
             else:
+                print(words_list[example_id])
                 output_line = line.rstrip('\n') + " " + new_label + " " + new_token + " " + f"{int(orign_label==new_label)}" + "\n"
                 logger.info(f"new token is deleted by tokenizer: {output_line}")
         else:
@@ -639,7 +663,7 @@ def select_model(root_dir,
     max_step = None
 
     for log in log_history:
-        score = log.get("eval_all_f_recall", -1)
+        score = log.get("eval_all_recall", -1)
 
         if score > max_score:
             max_score = score
@@ -649,13 +673,13 @@ def select_model(root_dir,
         # 把最优模型copy出来
         model_path = os.path.join(dir_path, f"checkpoint-{max_step}", model_name)
         cmd = f"cp {model_path} {dir_path}"
-        logger.warring("cmd: " + cmd)
+        logger.warning("cmd: " + cmd)
         os.system(cmd)
     if rm:
         # 多余的模型删掉
         rm_path = os.path.join(dir_path, f"checkpoint-*")
         cmd = f"rm -r  {rm_path}"
-        logger.warring("cmd: " + cmd)
+        logger.warning("cmd: " + cmd)
         os.system(cmd)
 
 

@@ -68,7 +68,7 @@ def get_analyze(root_dir,
 
 if __name__ == "__main__":
     root_dir = "../user_data/output/output_layer_lstm_crf"
-    model = "bert+layer+lstm+crf"
+    model = "bert+words+layer+lstm+crf"
     file_name = "log_history.json"
     k_fold = 10
     analyze_df = get_analyze(root_dir, model, file_name, k_fold=k_fold)
